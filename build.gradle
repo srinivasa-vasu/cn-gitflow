@@ -2,16 +2,12 @@ buildscript {
     ext {
         springBootVersion = '2.2.4.RELEASE'
         javaCfEnvVersion = '2.1.1.RELEASE'
-        springCloudServicesVersion = '2.1.4.RELEASE'
-        springCloudVersion = 'Hoxton.RC2'
     }
 
     repositories {
         jcenter()
         mavenCentral()
         maven { url "https://repo.spring.io/plugins-release" }
-        maven { url "https://repo.spring.io/plugins-snapshot" }
-        maven { url 'https://repo.spring.io/milestone' }
     }
 
     dependencies {
@@ -19,6 +15,14 @@ buildscript {
     }
 }
 
+apply plugin: 'java'
+
+apply plugin: 'eclipse-wtp'
+apply plugin: 'idea'
+
+apply plugin: 'org.springframework.boot'
+apply plugin: 'io.spring.dependency-management'
+
 version = '1.0'
 
 repositories {
@@ -26,29 +30,6 @@ repositories {
 }
 
 dependencies {
-plugins {
-  id 'org.springframework.boot'
-  id 'io.spring.dependency-management'
-  id 'java'
-  id 'idea'
-  id 'eclipse-wtp'
-//  id 'com.google.cloud.tools.jib' version '2.0.0'
-}
-
-
-version = '1.0'
-
-sourceCompatibility = 1.8
-targetCompatibility = 1.8
-
-repositories {
-    mavenCentral()
-    mavenLocal()
-    maven { url "https://repo.spring.io/libs-snapshot" }
-}
-
-dependencies {
-
     // Spring Boot
     implementation "org.springframework.boot:spring-boot-starter-web"
     implementation "org.springframework.boot:spring-boot-starter-actuator"
@@ -57,6 +38,7 @@ dependencies {
     implementation "org.springframework.boot:spring-boot-starter-data-redis"
     implementation "org.springframework.boot:spring-boot-starter-validation"
     implementation "org.apache.commons:commons-dbcp2"
+
     // Java CfEnv
     implementation "io.pivotal.cfenv:java-cfenv-boot:${javaCfEnvVersion}"
 
@@ -77,13 +59,13 @@ dependencies {
     implementation "org.webjars:angular-ui-bootstrap:0.10.0-1"
     implementation "org.webjars:jquery:2.1.0-2"
 
+    implementation "io.micrometer:micrometer-registry-prometheus"
+
+    //implementation "org.springframework.cloud.bazaar.connector:spring-cloud-cloudfoundry-bazaar-connector:Bazaar.RC1"
+
     // Oracle - uncomment one of the following after placing driver in ./libs
     // compile files('libs/ojdbc8.jar')
     // compile files('libs/ojdbc7.jar')
-
-    compile "io.micrometer:micrometer-registry-prometheus"
-
-    //compile "org.springframework.cloud.bazaar.connector:spring-cloud-cloudfoundry-bazaar-connector:Bazaar.RC1"
 
     // Testing
     testImplementation "junit:junit"
@@ -93,10 +75,4 @@ dependencies {
 jar {
     archiveBaseName = "spring-music"
     archiveVersion = "" // omit the version from the war file name
-dependencyManagement {
-  imports {
-    mavenBom "io.pivotal.spring.cloud:spring-cloud-services-dependencies:${springCloudServicesVersion}"
-    mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
-  }
 }
-    
