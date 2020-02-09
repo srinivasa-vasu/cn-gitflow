@@ -30,3 +30,5 @@ build/
 credentials.yml
 credentials.yaml
 tekton/pipeline.yml
+
+.java-version

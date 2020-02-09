@@ -22,8 +22,8 @@ spec:
       #serviceAccountName: spring-sa
       containers:
       - name: spring-music
-        #image: harbor.pcf.humourmind.com/spring/spring-music:blue
-        image: humourmind/spring-music:latest
+        image: harbor.pcf.humourmind.com/k8s/hm-music
+        #image: humourmind/spring-music:latest
         imagePullPolicy: Always
         resources:
           requests:
