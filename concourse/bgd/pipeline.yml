@@ -1,0 +1,125 @@
+resource_types:
+- name: gcs-resource
+  type: docker-image
+  source:
+    repository: frodenas/gcs-resource
+    tag: latest
+
+resources:
+- name: git-repo
+  type: git
+  source:
+    uri: https://github.com/srinivasa-vasu/cf-workshop-spring-boot.git
+    branch: master
+    
+- name: version
+  type: semver
+  source:
+    initial_version: 1.0.0
+    driver: gcs
+    bucket: cn-pcf-bkt
+    json_key: {{gcp_service_account_key}}
+    key: current-version
+
+- name: artifacts
+  type: gcs-resource
+  source:
+    bucket: cn-pcf-bkt
+    json_key: {{gcp_service_account_key}}
+    regexp: releases/boot-app-(.*).jar
+
+- name: cf-dev
+  type: cf
+  source:
+    api: {{cf-api}}
+    skip_cert_check: true
+    organization: {{cf-organization}}
+    username: {{cf-username}}
+    password: {{cf-password}}
+    space: {{cf-space-dev}}
+    
+
+jobs:
+
+- name: unit-test
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+  - task: unit-test
+    file: git-repo/concourse/shared/tasks/unit-test.yml
+
+- name: unit-pkg
+  serial: true
+  serial_groups: [version]
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - unit-test
+  - get: version
+    params: {bump: final}
+  - task: build-package
+    file: git-repo/concourse/shared/tasks/build-package.yml
+  - put: artifacts
+    params: 
+      file: artifacts/boot-app-*.jar
+  - put: version
+    params: {bump: minor}
+
+- name: bluegreen-deploy
+  serial: true
+  public: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+      - unit-pkg
+  - get: artifacts
+    trigger: true
+    passed:
+      - unit-pkg      
+  - task: get-current-info
+    file: git-repo/concourse/bgd/tasks/app-get-info.yml
+    params:
+      API: {{cf-api}}
+      ORG: {{cf-organization}}
+      USER: {{cf-username}}
+      PASSWORD: {{cf-password}}
+      SPACE: {{cf-space-dev}}
+      APP_SUFFIX: {{cf-app-suffix}}
+  - task: prepare-app-manifest
+    file: git-repo/concourse/bgd/tasks/app-manifest-prep.yml
+    params:
+      APP_SUFFIX: {{cf-app-suffix}}
+  - put: cf-dev
+    params:
+      manifest: app-manifest-output/manifest.yml
+      path: artifacts/boot-app-*.jar   
+
+- name: promote-new-version
+  serial: true
+  public: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+      - bluegreen-deploy
+  - task: get-current-info
+    file: git-repo/concourse/bgd/tasks/app-get-info.yml
+    params:
+      API: {{cf-api}}
+      ORG: {{cf-organization}}
+      USER: {{cf-username}}
+      PASSWORD: {{cf-password}}
+      SPACE: {{cf-space-dev}}
+  - task: switch-app-routes
+    file: git-repo/concourse/bgd/tasks/update-routes.yml
+    params:
+      API: {{cf-api}}
+      ORG: {{cf-organization}}
+      USER: {{cf-username}}
+      PASSWORD: {{cf-password}}
+      SPACE: {{cf-space-dev}}
+      APP_SUFFIX: {{cf-app-suffix}}
+      APP_DOMAIN: {{cf-app-domain}}    

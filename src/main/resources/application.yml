@@ -7,10 +7,26 @@ management:
     web:
       exposure:
         include: "*"
+<<<<<<< HEAD
   endpoint:
     health:
       show-details: always
 
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+  endpoint:
+    health:
+      show-details: always
+=======
+<<<<<<< HEAD
+>>>>>>> Support Boot 2.0
+=======
+>>>>>>> local change
+
+#server:
+#  port: 8070
+>>>>>>> initial tekton commit
 ---
 spring:
   profiles: mysql
@@ -36,3 +52,13 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.ProgressDialect
+<<<<<<< HEAD
+=======
+---
+spring:
+  profiles: mongodb
+  data:
+    mongodb:
+      database: albumDB
+#      uri: ${vcap.services.mongo-cups.credentials.endpoint}
+>>>>>>> initial tekton commit

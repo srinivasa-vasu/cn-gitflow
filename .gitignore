@@ -3,19 +3,45 @@
 *.ids
 *.iws
 .idea/
+<<<<<<< HEAD
 
+=======
+.vscode/
+bin/
+>>>>>>> initial tekton commit
 .project
 .metadata
 local.properties
 .classpath
 .settings/
 .loadpath
+<<<<<<< HEAD
 
+=======
+manifest*
+Docker*
+>>>>>>> initial tekton commit
 
 target/
 
 .gradle
+<<<<<<< HEAD
+=======
+gradlew.bat
+gradle/
+>>>>>>> initial tekton commit
 build/
 
 *.log*
 /classes/
+<<<<<<< HEAD
+=======
+
+.DS_Store
+
+#concourse
+credentials.yml
+credentials.yaml
+tekton/pipeline.yml
+
+>>>>>>> initial tekton commit

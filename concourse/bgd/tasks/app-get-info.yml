@@ -1,0 +1,18 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source:
+    repository: pivotalservices/docker-concourse-cf-tools
+    tag: "latest"
+
+inputs:
+- name: git-repo
+
+outputs:
+- name: app-info
+
+run:
+  path: ./git-repo/concourse/bgd/tasks/app-get-info.sh
+  

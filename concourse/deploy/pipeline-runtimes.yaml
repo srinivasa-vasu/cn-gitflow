@@ -1,0 +1,232 @@
+groups:
+- name: build
+  jobs:
+  - unit-test
+  - unit-pkg
+  - unit-pkg-image
+
+
+- name: run
+  jobs:
+  - as-deploy
+  - cs-deploy
+
+
+- name: wire
+  jobs:
+
+
+# groups:
+# - name: HARBOR-FLOW
+#   jobs:
+#   - unit-pkg-image
+#   - cve-scan-image
+#   - sign-image
+
+# - name: K8S-FLOW
+#   jobs:
+#   - cs-deploy
+# groups:
+# - name: main
+#   jobs:
+#   - unit-test
+#   - unit-pkg
+#   - as-deploy
+#   - stage-deploy
+
+resource_types:
+- name: gcs-resource
+  type: docker-image
+  source:
+    repository: frodenas/gcs-resource
+    tag: latest
+
+- name: k8s
+  type: docker-image
+  source:
+    repository: srinivasavasu/concourse-k8s    
+    tag: "1.0"
+
+resources:
+- name: git-repo
+  type: git
+  source:
+#    uri: https://github.com/srinivasa-vasu/cf-workshop-spring-boot.git
+    uri: https://github.com/srinivasa-vasu/spring-music
+    branch: master
+    
+- name: version
+  type: semver
+  source:
+    initial_version: 1.0.0
+    driver: gcs
+    bucket: cn-pcf-bkt
+    json_key: {{gcp_service_account_key}}
+    key: current-version
+
+- name: artifacts
+  type: gcs-resource
+  source:
+    bucket: cn-pcf-bkt
+    json_key: {{gcp_service_account_key}}
+    regexp: releases/spring-music-(.*).jar
+
+- name: as-dev
+  type: cf
+  source:
+    api: {{cf-api}}
+    skip_cert_check: true
+    organization: {{cf-organization}}
+    username: {{cf-username}}
+    password: {{cf-password}}
+    space: {{cf-space-dev}}
+    
+# - name: cf-stage
+#   type: cf
+#   source:
+#     api: {{cf-api}}
+#     skip_cert_check: true
+#     organization: {{cf-organization}}
+#     username: {{cf-username}}
+#     password: {{cf-password}}
+#     space: {{cf-space-stage}}
+
+- name: image
+  type: docker-image
+  source:
+    username: {{HARBOR_USERNAME}}
+    password: {{HARBOR_PASSWORD}}
+    repository: {{REPO_URL}}
+    tag: {{APP_TAG_VERSION}}
+    insecure_registries:
+    - {{REPO_INSECURE_REGISTRY}}
+    
+- name: cs-dev
+  type: k8s
+  source:
+    cluster_url: {{K8S_CLUSTER_URL}}
+    namespace: {{K8S_NAMESPACE}}
+    cluster_ca: {{K8S_CA_BASE64}}
+    admin_user: {{K8S_ADMIN_USER}}
+    admin_token: {{K8S_ADMIN_TOKEN}}
+
+
+jobs:
+
+- name: unit-test
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+  - task: unit-test
+    file: git-repo/concourse/shared/tasks/unit-test.yml
+
+- name: unit-pkg
+  serial_groups: [version]
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - unit-test
+  - get: version
+    params: {bump: final}
+  - task: build-package
+    file: git-repo/concourse/shared/tasks/build-package.yml
+  - put: artifacts
+    params: 
+      file: artifacts/spring-music-*.jar
+  - put: version
+    params: {bump: minor}
+
+- name: unit-pkg-image
+  serial_groups: [version]
+  # public: true
+#  serial: true
+  plan:
+  - in_parallel:
+    - get: git-repo
+      trigger: true
+      passed:
+      - unit-test
+    - get: artifacts
+      trigger: true
+      passed:
+      - unit-pkg
+  - task: build-image
+    file: git-repo/concourse/shared/tasks/build-image.yml
+  - put: image
+    params:
+      build: workarea
+
+- name: as-deploy
+  plan:
+  - get: artifacts
+    trigger: true
+    passed:
+    - unit-pkg
+  - get: git-repo
+    passed:
+    - unit-pkg
+  - put: as-dev
+    params:
+      manifest: git-repo/manifest.yml
+      path: artifacts/spring-music-*.jar
+
+# - name: stage-deploy
+#   plan:
+#   - get: git-repo
+#     passed:
+#       - as-deploy
+#   - get: artifacts
+#     passed:
+#       - as-deploy
+#   - put: cf-stage
+#     params:
+#       manifest: git-repo/manifest.yml
+#       path: artifacts/spring-music-*.jar
+#       current_app_name: spring-music
+
+- name: cs-deploy
+  public: true
+  serial: true
+  plan:
+  - get: image
+    passed: ["unit-pkg-image"]
+    trigger: true
+  - put: cs-dev
+    params:
+      resource_type: deployment
+      resource_name: spring-music
+      image_name: {{REPO_URL}}
+      image_tag: {{APP_TAG_VERSION}}
+      port_values:
+      - name: web
+        containerPort: "8070"
+        readinessProbe:
+          httpGet:
+            path: /actuator/env
+            port: web
+          initialDelaySeconds: 55
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /actuator/env
+            port: web
+          initialDelaySeconds: 60
+          periodSeconds: 1 
+          failureThreshold: 1        
+  - put: cs-dev
+    params:
+      resource_type: service
+      resource_name: spring-music
+      port_values:
+      - name: web
+        port: "80"
+        targetPort: "8070"
+  - put: cs-dev
+    params:
+      resource_type: ingress
+      resource_name: spring-music
+      service_port: "80"
+      host: spring-music.pksapps.humourmind.com  
+      ingress_class: nginx    
