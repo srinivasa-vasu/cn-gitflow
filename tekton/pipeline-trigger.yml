@@ -1,0 +1,99 @@
+apiVersion: tekton.dev/v1alpha1
+kind: TriggerTemplate
+metadata:
+  name: cn-pipeline-triggertemplate
+spec:
+  params:
+    - name: revision
+      default: master
+    - name: url
+      description: webhook activated repo
+    - name: namespace
+      default: default
+    - name: reponame
+      description: The name of the deployment to be created / patched
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1alpha1
+      kind: PipelineResource
+      metadata:
+        name: source-repo-$(params.reponame)-$(uid)
+        namespace: $(params.namespace)
+      spec:
+        type: git
+        params:
+          - name: revision
+            value: $(params.revision)
+          - name: url
+            value: $(params.url)
+    - apiVersion: tekton.dev/v1alpha1
+      kind: PipelineResource
+      metadata:
+        name: target-image-$(params.reponame)-$(uid)
+        namespace: $(params.namespace)
+      spec:
+        type: image
+        params:
+          - name: url
+            value: harbor.pcf.humourmind.com/k8s/$(params.reponame):latest
+    - apiVersion: tekton.dev/v1alpha1
+      kind: PipelineRun
+      metadata:
+        name: cn-pipeline-run-$(uid)
+        namespace: $(params.namespace)
+      spec:
+        serviceAccountName: cn-pipeline-bot
+        podTemplate:
+          volumes:
+            - name: image-cache
+              persistentVolumeClaim:
+                claimName: cn-build-cache-pvc
+        pipelineRef:
+          name: cn-pipeline
+        resources:
+          - name: source-repo
+            resourceRef:
+              name: source-repo-$(params.reponame)-$(uid)
+          - name: target-image
+            resourceRef:
+              name: target-image-$(params.reponame)-$(uid)
+---
+apiVersion: tekton.dev/v1alpha1
+kind: TriggerBinding
+metadata:
+  name: cn-pipeline-triggerbinding
+spec:
+  params:
+    - name: revision
+      value: $(body.head_commit.id)
+    - name: namespace
+      value: default
+    - name: url
+      value: $(body.repository.url)
+    - name: reponame
+      value: $(body.repository.name)
+---
+apiVersion: tekton.dev/v1alpha1
+kind: EventListener
+metadata:
+  name: cn-pipeline-listener
+spec:
+  serviceAccountName: cn-pipeline-bot
+  triggers:
+    - bindings:
+        - name: cn-pipeline-triggerbinding
+      template:
+        name: cn-pipeline-triggertemplate
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: el-cn-pipeline-route
+spec:
+  virtualhost:
+    fqdn: go.tekton.cd.humourmind.com
+    tls:
+      secretName: cn-tls-secret
+  routes:
+    - services:
+        - name: el-cn-pipeline-listener
+          port: 8080
