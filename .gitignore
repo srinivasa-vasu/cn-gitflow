@@ -32,3 +32,4 @@ credentials.yaml
 tekton/pipeline.yml
 
 .java-version
+.envrc

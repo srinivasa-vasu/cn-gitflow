@@ -60,7 +60,7 @@ dependencies {
     implementation "org.webjars:jquery:2.1.0-2"
 
     //implementation "io.micrometer:micrometer-registry-prometheus"
-    implementation "io.micrometer:micrometer-registry-wavefront"
+    //implementation "io.micrometer:micrometer-registry-wavefront"
 
     //implementation "org.springframework.cloud.bazaar.connector:spring-cloud-cloudfoundry-bazaar-connector:Bazaar.RC1"
 

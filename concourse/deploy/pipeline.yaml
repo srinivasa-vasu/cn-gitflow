@@ -1,10 +1,20 @@
 groups:
-- name: main
+- name: dev
   jobs:
   - unit-test
   - unit-pkg
   - dev-deploy
+- name: stage
+  jobs:
+  - code-coverage
+  - code-quality
+  - iast
   - stage-deploy
+- name: pre-prod
+  jobs:
+  - int-test
+  - load-test
+  - pre-prod-deploy
 
 resource_types:
 - name: gcs-resource
@@ -18,7 +28,7 @@ resources:
 - name: git-repo
   type: git
   source:
-    uri: https://github.com/srinivasa-vasu/cf-workshop-spring-boot.git
+    uri: https://github.com/srinivasa-vasu/s-music.git
     branch: master
     
 - name: version
@@ -35,7 +45,7 @@ resources:
   source:
     bucket: cn-pcf-bkt
     json_key: {{gcp_service_account_key}}
-    regexp: releases/boot-app-(.*).jar
+    regexp: releases/spring-music-(.*).jar
 
 - name: cf-dev
   type: cf
@@ -56,6 +66,17 @@ resources:
     username: {{cf-username}}
     password: {{cf-password}}
     space: {{cf-space-stage}}
+
+- name: cf-pre-prod
+  type: cf
+  source:
+    api: {{cf-api}}
+    skip_cert_check: true
+    organization: {{cf-organization}}
+    username: {{cf-username}}
+    password: {{cf-password}}
+    space: {{cf-pre-prod-stage}}
+
 
 jobs:
 
@@ -80,7 +101,7 @@ jobs:
     file: git-repo/concourse/shared/tasks/build-package.yml
   - put: artifacts
     params: 
-      file: artifacts/boot-app-*.jar
+      file: artifacts/spring-music-*.jar
   - put: version
     params: {bump: minor}
 
@@ -96,18 +117,73 @@ jobs:
   - put: cf-dev
     params:
       manifest: git-repo/manifest.yml
-      path: artifacts/boot-app-*.jar
+      path: artifacts/spring-music-*.jar
+
+- name: code-coverage
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - dev-deploy
+
+- name: code-quality
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - code-coverage
+
+- name: iast
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - code-quality
 
 - name: stage-deploy
   plan:
   - get: git-repo
     passed:
-      - dev-deploy
+      - iast
   - get: artifacts
     passed:
       - dev-deploy
   - put: cf-stage
     params:
       manifest: git-repo/manifest.yml
-      path: artifacts/boot-app-*.jar
-      current_app_name: boot-app
+      path: artifacts/spring-music-*.jar
+      current_app_name: spring-music
+
+- name: int-test
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - stage-deploy
+
+- name: load-test
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - int-test
+
+- name: pre-prod-deploy
+  plan:
+  - get: git-repo
+    passed:
+      - load-test
+  - get: artifacts
+    passed:
+      - dev-deploy
+      - stage-deploy
+  - put: cf-pre-prod
+    params:
+      manifest: git-repo/manifest.yml
+      path: artifacts/spring-music-*.jar
+      current_app_name: spring-music      
