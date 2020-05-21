@@ -133,6 +133,8 @@ jobs:
     trigger: true
     passed:
     - unit-test
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
 
 - name: code-quality
   serial: true
@@ -141,6 +143,8 @@ jobs:
     trigger: true
     passed:
     - code-coverage
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
 
 - name: unit-pkg
   serial_groups: [version]
@@ -196,6 +200,8 @@ jobs:
     passed:
     - dev-deploy
     - dev-tas4k8s-deploy
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
 
 - name: sast
   serial: true
@@ -205,6 +211,8 @@ jobs:
     passed:
     - dev-deploy
     - dev-tas4k8s-deploy
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
 
 - name: dast
   serial: true
@@ -214,6 +222,8 @@ jobs:
     passed:
     - dev-deploy
     - dev-tas4k8s-deploy
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
 
 - name: iast
   serial: true
@@ -223,10 +233,13 @@ jobs:
     passed:
     - dev-deploy
     - dev-tas4k8s-deploy
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
 
 - name: stage-deploy
   plan:
   - get: git-repo
+    trigger: true
     passed:
       - iast
       - sast
@@ -245,6 +258,7 @@ jobs:
 - name: stage-tas4k8s-deploy
   plan:
   - get: git-repo
+    trigger: true
     passed:
       - iast
       - sast
@@ -268,6 +282,8 @@ jobs:
     passed:
     - stage-deploy
     - stage-tas4k8s-deploy
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
 
 - name: reg-test
   serial: true
@@ -277,6 +293,8 @@ jobs:
     passed:
     - stage-deploy    
     - stage-tas4k8s-deploy
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
 
 - name: load-test
   serial: true
@@ -286,6 +304,8 @@ jobs:
     passed:
     - reg-test
     - int-test
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
 
 - name: approval
   serial: true
