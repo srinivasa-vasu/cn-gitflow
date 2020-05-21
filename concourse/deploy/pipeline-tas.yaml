@@ -35,6 +35,7 @@ resources:
 
 - name: git-repo
   type: git
+  check_every: 30s
   source:
     uri: https://github.com/srinivasa-vasu/s-music.git
     branch: master
