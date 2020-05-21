@@ -5,6 +5,9 @@ image_resource:
   source:
     repository: busybox
     tag: latest
-    
+
+inputs:
+  - name: git-repo
+
 run:
-  path: ./git-repo/concourse/shared/tasks/unit-test.sh  
+  path: ./git-repo/concourse/shared/tasks/ext-test.sh  

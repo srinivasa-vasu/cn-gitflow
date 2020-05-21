@@ -165,6 +165,7 @@ jobs:
     params: {bump: minor}
 
 - name: dev-deploy
+  serial: true
   plan:
   - get: artifacts
     trigger: true
@@ -179,6 +180,7 @@ jobs:
       path: artifacts/spring-music-*.jar
 
 - name: dev-tas4k8s-deploy
+  serial: true
   plan:
   - get: artifacts
     trigger: true
@@ -237,6 +239,7 @@ jobs:
     file: git-repo/concourse/shared/tasks/ext-test.yml
 
 - name: stage-deploy
+  serial: true
   plan:
   - get: git-repo
     trigger: true
@@ -256,6 +259,7 @@ jobs:
       current_app_name: spring-music
 
 - name: stage-tas4k8s-deploy
+  serial: true
   plan:
   - get: git-repo
     trigger: true
@@ -316,6 +320,7 @@ jobs:
     - load-test    
 
 - name: pre-prod-deploy
+  serial: true
   plan:
   - get: git-repo
     passed:
@@ -332,8 +337,10 @@ jobs:
       current_app_name: spring-music  
 
 - name: pre-prod-tas4k8s-deploy
+  serial: true
   plan:
   - get: git-repo
+    trigger: true
     passed:
       - approval
   - get: artifacts
