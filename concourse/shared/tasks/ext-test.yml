@@ -2,12 +2,10 @@ platform: linux
 
 image_resource:
   type: docker-image
-  source:
+  source: 
     repository: busybox
     tag: latest
 
-inputs:
-  - name: git-repo
-
 run:
-  path: ./git-repo/concourse/shared/tasks/ext-test.sh  
+  path: echo
+  args: [placeholder to call/include external ecosystem services]
