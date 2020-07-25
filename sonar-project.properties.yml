@@ -1,0 +1,373 @@
+groups:
+- name: dev
+  jobs:
+  - unit-test
+  # - code-coverage
+  - sonarqube-analyze
+  - sonarqube-qualitygate
+  - unit-pkg
+  - dev-deploy
+- name: stage
+  jobs:
+  - vapt
+  - veracode
+  - aquasecurity
+  - snyk
+  - stage-deploy
+  - qtp
+  - silktest
+  - jmeter
+- name: pre-prod
+  jobs:
+  - audit
+  - compliance
+  - approval-gate
+  - pre-prod-deploy
+
+resource_types:
+- name: gcs-resource
+  type: docker-image
+  source:
+    repository: frodenas/gcs-resource
+    tag: latest
+
+- name: sonar-runner
+  type: docker-image
+  source:
+    repository: cathive/concourse-sonarqube-resource
+    tag: latest    
+
+resources:
+
+- name: git-repo
+  type: git
+  check_every: 30s
+  source:
+    uri: https://github.com/srinivasa-vasu/s-music.git
+    branch: master
+    
+- name: version
+  type: semver
+  source:
+    initial_version: 1.0.0
+    driver: gcs
+    bucket: cn-pcf-bkt
+    json_key: {{gcp_service_account_key}}
+    key: current-version
+
+- name: artifacts
+  type: gcs-resource
+  source:
+    bucket: cn-pcf-bkt
+    json_key: {{gcp_service_account_key}}
+    regexp: releases/spring-music-(.*).jar
+
+# - name: quality-artifacts
+#   type: gcs-resource
+#   source:
+#     bucket: cn-pcf-bkt
+#     json_key: {{gcp_service_account_key}}
+#     regexp: quality/
+
+- name: tas-dev
+  type: cf
+  source:
+    api: {{cf-api}}
+    skip_cert_check: true
+    organization: {{cf-organization}}
+    username: {{cf-username}}
+    password: {{cf-password}}
+    space: {{cf-space-dev}}
+    
+- name: tas-stage
+  type: cf
+  source:
+    api: {{cf-api}}
+    skip_cert_check: true
+    organization: {{cf-organization}}
+    username: {{cf-username}}
+    password: {{cf-password}}
+    space: {{cf-space-stage}}
+
+- name: tas-pre-prod
+  type: cf
+  source:
+    api: {{cf-api}}
+    skip_cert_check: true
+    organization: {{cf-organization}}
+    username: {{cf-username}}
+    password: {{cf-password}}
+    space: {{cf-space-preprod}}
+
+- name: code-analysis
+  type: sonar-runner
+  source:
+    host_url: https://sonarcloud.io
+    login: {{sonarqube-auth-token}}
+    organization: {{sonarqube-org}}
+
+
+jobs:
+
+- name: unit-test
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+  - task: unit-test
+    file: git-repo/concourse/shared/tasks/unit-test.yml
+
+# - name: code-coverage
+#   serial: true
+#   plan:
+#   - get: git-repo
+#     trigger: true
+#     passed:
+#     - unit-test
+#   - task: ext-test
+#     file: git-repo/concourse/shared/tasks/ext-test.yml
+
+- name: sonarqube-analyze
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - unit-test
+  - task: build
+    config:
+      platform: linux
+      image_resource:
+        type: docker-image
+        source:
+          repository: gradle
+          tag: 'latest'
+      inputs:
+      - name: git-repo
+      outputs:
+      # Hint: The sonar-runner needs more than just the
+      # sources to perform a full analysis. Line coverage reports, unit test reports,
+      # Java class files and mutation test results should also be present.
+      # Therefore, you'll have to make sure that your build script provides the sources
+      # and the compilation/test results in your Concourse CI build plan.
+      # (And that is the reason, why we need the following output)
+      - name: git-repo
+      run:
+        path: git-repo/concourse/shared/tasks/unit-test.sh
+        # dir: git-repo
+  - in_parallel:
+    - put: code-analysis
+      params:
+        project_path: git-repo
+        # project_key: spring-music
+        # sources: ["build/classes"]
+        # tests: ["."]
+        additional_properties:
+          # Will be passed as "-Dsonar.javascript.lcov.reportPaths="coverage/lcov.info" to the scanner.
+          sonar.javascript.lcov.reportPaths: coverage/lcov.info
+      get_params:
+        quality_gate:
+          ignore_errors: ['new_coverage', 'violations']
+          ignore_warns: ['new_duplicated_lines_density', 'violations']
+    # - put: quality-artifacts
+    #   params:
+    #     file: quality-artifacts
+
+# The qualitygate task breaks the build if the analysis result from SonarQube
+# indicates that any of our quality metrics have not been met.
+- name: sonarqube-qualitygate
+  plan:
+  - in_parallel:
+    - get: git-repo
+    # - get: quality-artifacts
+      passed:
+      - sonarqube-analyze
+      trigger: true
+    - get: code-analysis
+      passed:
+      - sonarqube-analyze
+      trigger: true
+  - task: check-sonarqube-quality-gate
+    config:
+      platform: linux
+      image_resource:
+        type: docker-image
+        source:
+          repository: cathive/concourse-sonarqube-qualitygate-task
+          tag: latest # Use one of the versioned tags for reproducible builds!
+      inputs:
+      - name: code-analysis
+      run:
+        path: /sonarqube-qualitygate-check
+        dir: code-analysis
+
+- name: unit-pkg
+  serial_groups: [version]
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - sonarqube-qualitygate
+    - unit-test
+  - get: version
+    params: {bump: final}
+  - task: build-package
+    file: git-repo/concourse/shared/tasks/build-package.yml
+  - put: artifacts
+    params: 
+      file: artifacts/spring-music-*.jar
+  - put: version
+    params: {bump: minor}
+
+- name: dev-deploy
+  serial: true
+  serial_groups: [deploy]
+  plan:
+  - get: artifacts
+    trigger: true
+    passed:
+    - unit-pkg
+  - get: git-repo
+    passed:
+    - unit-pkg
+  - put: tas-dev
+    params:
+      manifest: git-repo/manifest.yml
+      path: artifacts/spring-music-*.jar
+
+- name: vapt
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - dev-deploy
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
+
+- name: veracode
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - dev-deploy
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
+
+- name: aquasecurity
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - dev-deploy
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
+
+- name: snyk
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - dev-deploy
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
+
+- name: stage-deploy
+  serial: true
+  serial_groups: [deploy]
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+      - snyk
+      - veracode
+      - aquasecurity
+  - get: artifacts
+    trigger: true
+    passed:
+    - dev-deploy
+  - put: tas-stage
+    params:
+      manifest: git-repo/manifest.yml
+      path: artifacts/spring-music-*.jar
+      current_app_name: spring-music
+
+- name: silktest
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - stage-deploy
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
+
+- name: qtp
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - stage-deploy    
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
+
+- name: jmeter
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - qtp
+    - silktest
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
+
+- name: audit
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - jmeter
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml
+
+- name: compliance
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - audit
+  - task: ext-test
+    file: git-repo/concourse/shared/tasks/ext-test.yml      
+
+- name: approval-gate
+  serial: true
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+    - compliance
+
+- name: pre-prod-deploy
+  serial: true
+  serial_groups: [deploy]
+  plan:
+  - get: git-repo
+    trigger: true
+    passed:
+      - approval-gate
+  - get: artifacts
+    trigger: true
+    passed:
+    - stage-deploy
+  - put: tas-pre-prod
+    params:
+      manifest: git-repo/manifest.yml
+      path: artifacts/spring-music-*.jar
+      current_app_name: spring-music      
