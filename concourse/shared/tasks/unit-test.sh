@@ -1,6 +1,9 @@
 #!/bin/bash
 
-set -xe
+set -xeu
+
+echo $LOCAL_REPO
+echo $REPO_KEY
 
 export LOCAL_REPO=$LOCAL_REPO
 export REPO_KEY=$REPO_KEY
