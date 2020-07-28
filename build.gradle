@@ -84,13 +84,6 @@ dependencies {
     testImplementation "org.springframework.boot:spring-boot-starter-test"
 }
 
-// publishing {
-//     publications {
-//         mavenJava(MavenPublication) {
-//             from components.java
-//         }
-//     }
-// }
 artifactory {
     contextUrl = System.getenv('LOCAL_REPO')
     publish {
@@ -98,6 +91,7 @@ artifactory {
             repoKey = 'gradle-dev-local'
             username = System.getenv('REPO_KEY')
             password = System.getenv('REPO_SECRET')
+            maven = true
         }
         defaults {
             publications("mavenJava")
@@ -113,7 +107,6 @@ artifactory {
         }
     }
 }
-
 
 publishing {
     publications {
