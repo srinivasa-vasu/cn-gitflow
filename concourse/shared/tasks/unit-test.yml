@@ -8,9 +8,9 @@ image_resource:
     tag: latest
 
 params:
-  LOCAL_REPO:
-  REPO_KEY:
-  REPO_SECRET:
+  LOCAL_REPO: ((LOCAL_REPO))
+  REPO_KEY: ((REPO_KEY))
+  REPO_SECRET: ((REPO_SECRET))
 
 inputs:
   - name: git-repo
