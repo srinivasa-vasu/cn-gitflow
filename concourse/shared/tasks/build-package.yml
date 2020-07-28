@@ -16,4 +16,8 @@ outputs:
   
 run:
   path: ./git-repo/concourse/shared/tasks/build-package.sh  
-params: {version: version/number}
+params: 
+  version: version/number
+  LOCAL_REPO:
+  REPO_KEY:
+  REPO_SECRET:

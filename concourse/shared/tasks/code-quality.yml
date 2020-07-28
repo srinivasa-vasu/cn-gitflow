@@ -6,6 +6,11 @@ image_resource:
     repository: gradle
     tag: latest
 
+params:
+  LOCAL_REPO:
+  REPO_KEY:
+  REPO_SECRET:
+
 inputs:
   - name: git-repo
 

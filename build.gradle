@@ -6,17 +6,23 @@ buildscript {
 
     repositories {
         jcenter()
-        mavenCentral()
-        maven { url "https://repo.spring.io/plugins-release" }
+        // mavenCentral()
+        maven {
+            // url "https://repo.spring.io/plugins-release" 
+            url = System.getenv('LOCAL_REPO')
+            name = "maven-main-cache"
+        }
     }
 
     dependencies {
         classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}")
+        classpath "org.jfrog.buildinfo:build-info-extractor-gradle:4+"
     }
 }
 
 plugins {
   id "org.sonarqube" version "3.0"
+  id "com.jfrog.artifactory" version "4.16.1"
 }
 
 apply plugin: 'java'
@@ -26,11 +32,12 @@ apply plugin: 'idea'
 
 apply plugin: 'org.springframework.boot'
 apply plugin: 'io.spring.dependency-management'
+apply plugin: 'maven-publish'
 
 version = '1.0'
 
 repositories {
-    mavenCentral()
+    add buildscript.repositories.getByName("maven-main-cache")
 }
 
 dependencies {
@@ -75,6 +82,46 @@ dependencies {
     // Testing
     testImplementation "junit:junit"
     testImplementation "org.springframework.boot:spring-boot-starter-test"
+}
+
+// publishing {
+//     publications {
+//         mavenJava(MavenPublication) {
+//             from components.java
+//         }
+//     }
+// }
+artifactory {
+    contextUrl = System.getenv('LOCAL_REPO')
+    publish {
+        repository {
+            repoKey = 'gradle-dev-local'
+            username = System.getenv('REPO_KEY')
+            password = System.getenv('REPO_SECRET')
+        }
+        defaults {
+            publications("mavenJava")
+        }
+    }
+    resolve {
+        repository {
+            repoKey = 'gradle-dev'
+            username = System.getenv('REPO_KEY')
+            password = System.getenv('REPO_SECRET')
+            maven = true
+            
+        }
+    }
+}
+
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            artifact bootJar
+        }
+    }
 }
 
 jar {
