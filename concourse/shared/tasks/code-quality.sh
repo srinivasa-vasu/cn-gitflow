@@ -6,5 +6,5 @@ export REPO_SECRET=$REPO_SECRET
 
 set -xe
 
-cd git-repo
+cd git-dev
 gradle build -x test

@@ -7,9 +7,9 @@ image_resource:
     tag: latest
 
 inputs:
-  - name: git-repo
+  - name: git-dev
 outputs:
   - name: comments
     
 run:
-  path: ./git-repo/concourse/shared/tasks/tracker.sh  
+  path: ./git-dev/concourse/shared/tasks/tracker.sh  

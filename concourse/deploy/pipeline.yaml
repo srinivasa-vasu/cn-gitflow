@@ -2,24 +2,32 @@ groups:
 - name: dev
   jobs:
   - unit-test
-  - code-coverage
-  - code-quality
-  - unit-pkg
+  - tag-tracker
+  - sonarqube-analyze
+  - sonarqube-qualitygate
+  - source-package
   - dev-deploy
 - name: stage
   jobs:
-  - vat
-  - sast
-  - dast
-  - iast
+  - vapt
+  # - veracode
+  - aquasecurity
+  # - snyk
   - stage-deploy
-  - reg-test
-  - int-test
-  - load-test
+  - integration-test
+  - functional-test
+  # - jmeter
 - name: pre-prod
   jobs:
-  - approval
+  # - audit
+  - jmeter
+  - compliance
+  # - approval-gate
   - pre-prod-deploy
+- name: prod  
+  jobs:
+  - prod-release
+  - prod-deploy
 
 resource_types:
 - name: gcs-resource
@@ -28,13 +36,52 @@ resource_types:
     repository: frodenas/gcs-resource
     tag: latest
 
+- name: sonar-runner
+  type: docker-image
+  source:
+    repository: cathive/concourse-sonarqube-resource
+    tag: latest   
+
+- name: slack-notification
+  type: docker-image
+  source:
+    repository: cfcommunity/slack-notification-resource
+    tag: latest     
+
 resources:
 
-- name: git-repo
+- name: git-dev
+  type: git
+  check_every: 30s
+  source:
+    uri: https://github.com/srinivasa-vasu/cn-gitflow.git
+    branch: master
+    username: ((git-user))
+    password: ((git-pass))
+    disable_ci_skip: true
+
+- name: git-prod
   type: git
   source:
-    uri: https://github.com/srinivasa-vasu/s-music.git
-    branch: master
+    uri: https://github.com/srinivasa-vasu/cn-gitflow.git
+    branch: prod
+    username: ((git-user))
+    password: ((git-pass))
+    disable_ci_skip: true   
+
+- name: tracker-output
+  type: tracker
+  source:
+    token: ((TRACKER_API_TOKEN))
+    project_id: ((TRACKER_PROJECT_ID))
+    tracker_url: https://www.pivotaltracker.com    
+
+- name: code-analysis
+  type: sonar-runner
+  source:
+    host_url: https://sonarcloud.io
+    login: ((sonarqube-auth-token))
+    organization: ((sonarqube-org))
     
 - name: version
   type: semver
@@ -42,45 +89,60 @@ resources:
     initial_version: 1.0.0
     driver: gcs
     bucket: cn-pcf-bkt
-    json_key: {{gcp_service_account_key}}
+    json_key: ((gcp_service_account_key))
     key: current-version
 
 - name: artifacts
   type: gcs-resource
   source:
     bucket: cn-pcf-bkt
-    json_key: {{gcp_service_account_key}}
+    json_key: ((gcp_service_account_key))
     regexp: releases/spring-music-(.*).jar
 
 - name: tas-dev
   type: cf
   source:
-    api: {{cf-api}}
+    api: ((cf-api))
     skip_cert_check: true
-    organization: {{cf-organization}}
-    username: {{cf-username}}
-    password: {{cf-password}}
-    space: {{cf-space-dev}}
+    organization: ((cf-organization))
+    username: ((cf-username))
+    password: ((cf-password))
+    space: ((cf-space-dev))
     
 - name: tas-stage
   type: cf
   source:
-    api: {{cf-api}}
+    api: ((cf-api))
     skip_cert_check: true
-    organization: {{cf-organization}}
-    username: {{cf-username}}
-    password: {{cf-password}}
-    space: {{cf-space-stage}}
+    organization: ((cf-organization))
+    username: ((cf-username))
+    password: ((cf-password))
+    space: ((cf-space-stage))
 
 - name: tas-pre-prod
   type: cf
   source:
-    api: {{cf-api}}
+    api: ((cf-api))
     skip_cert_check: true
-    organization: {{cf-organization}}
-    username: {{cf-username}}
-    password: {{cf-password}}
-    space: {{cf-space-preprod}}
+    organization: ((cf-organization))
+    username: ((cf-username))
+    password: ((cf-password))
+    space: ((cf-space-preprod))
+
+- name: tas-prod
+  type: cf
+  source:
+    api: ((cf-api))
+    skip_cert_check: true
+    organization: ((cf-organization))
+    username: ((cf-username))
+    password: ((cf-password))
+    space: ((cf-space-prod))
+
+- name: slack-alert
+  type: slack-notification
+  source:
+    url: ((slack-webhook))
 
 
 jobs:
@@ -88,43 +150,96 @@ jobs:
 - name: unit-test
   serial: true
   plan:
-  - get: git-repo
+  - get: git-dev
     trigger: true
   - task: unit-test
-    file: git-repo/concourse/shared/tasks/unit-test.yml
+    file: git-dev/concourse/shared/tasks/unit-test.yml
+    params:
+      LOCAL_REPO: ((local_repo))
+      REPO_KEY: ((repo_key))
+      REPO_SECRET: ((repo_secret))
 
-- name: code-coverage
-  serial: true
+- name: tag-tracker
   plan:
-  - get: git-repo
-    trigger: true
+  - get: git-dev
     passed:
     - unit-test
-  - task: ext-test
-    file: git-repo/concourse/shared/tasks/ext-test.yml
+    trigger: true
+  - task: generate-tracker-output
+    file: git-dev/concourse/shared/tasks/tracker.yml
+  - put: tracker-output          
+    params:
+      repos:
+      - git-dev
+      comment: comments/output.txt  
 
-- name: code-quality
+- name: sonarqube-analyze
   serial: true
   plan:
-  - get: git-repo
-    trigger: true
+  - get: git-dev
     passed:
-    - code-coverage
-  - task: ext-test
-    file: git-repo/concourse/shared/tasks/ext-test.yml
+    - tag-tracker
+    trigger: true
+  - task: build
+    file: git-dev/concourse/shared/tasks/code-quality.yml
+    params:
+      LOCAL_REPO: ((local_repo))
+      REPO_KEY: ((repo_key))
+      REPO_SECRET: ((repo_secret))
+  # - in_parallel:
+  - put: code-analysis
+    params:
+      project_path: git-dev
+      additional_properties:
+        sonar.javascript.lcov.reportPaths: coverage/lcov.info
+    get_params:
+      quality_gate:
+        ignore_errors: ['new_coverage', 'violations']
+        ignore_warns: ['new_duplicated_lines_density', 'violations']
+  # - put: quality-artifacts
+  #   params:
+  #     file: quality-artifacts/*.json
 
-- name: unit-pkg
+- name: sonarqube-qualitygate
+  plan:
+  - in_parallel:
+    - get: git-dev
+      passed:
+      - sonarqube-analyze
+      trigger: true
+    - get: code-analysis
+      passed:
+      - sonarqube-analyze
+      trigger: true
+  - task: check-sonarqube-quality-gate
+    config:
+      platform: linux
+      image_resource:
+        type: docker-image
+        source:
+          repository: cathive/concourse-sonarqube-qualitygate-task
+          tag: latest 
+      inputs:
+      - name: code-analysis
+      run:
+        path: /sonarqube-qualitygate-check
+        dir: code-analysis
+
+- name: source-package
   serial_groups: [version]
   plan:
-  - get: git-repo
-    trigger: true
+  - get: git-dev
     passed:
-    - code-quality
-    - unit-test
+    - sonarqube-qualitygate
+    trigger: true
   - get: version
     params: {bump: final}
   - task: build-package
-    file: git-repo/concourse/shared/tasks/build-package.yml
+    file: git-dev/concourse/shared/tasks/build-package.yml
+    params:
+      LOCAL_REPO: ((local_repo))
+      REPO_KEY: ((repo_key))
+      REPO_SECRET: ((repo_secret))
   - put: artifacts
     params: 
       file: artifacts/spring-music-*.jar
@@ -133,132 +248,231 @@ jobs:
 
 - name: dev-deploy
   serial: true
+  serial_groups: [deploy]
   plan:
   - get: artifacts
+    passed:
+    - source-package
     trigger: true
+  - get: git-dev
     passed:
-    - unit-pkg
-  - get: git-repo
-    passed:
-    - unit-pkg
+    - source-package
   - put: tas-dev
     params:
-      manifest: git-repo/manifest.yml
+      manifest: git-dev/manifest.yml
       path: artifacts/spring-music-*.jar
+    on_success:
+      task: pipeline-success
+      config:
+        platform: linux
+        image_resource:
+          type: docker-image
+          source:
+            repository: johnajimenez/ubuntu-bash-jq-curl-git
+            tag: latest
+        inputs:
+          - name: git-dev
+        run:
+          path: bash
+          args:
+            - -exc
+            - |
+              cd git-dev
+              export LATEST_GIT_SHA=$(curl -H "X-TrackerToken: ((TRACKER_API_TOKEN))" "https://www.pivotaltracker.com/services/v5/projects/2459057/cicd/6c4f920b182682a0c006bd81064204d8" | jq -r '.latest_git_sha')
+              git config --global core.pager cat
+              if git log $LATEST_GIT_SHA~..$LATEST_GIT_SHA; then
+                true # all is well
+              else
+                echo "$LATEST_GIT_SHA missing, assuming the worst"
+                export LATEST_GIT_SHA=null
+              fi
+              export NEW_LATEST_GIT_SHA=$(git rev-parse HEAD)
+              if [ "$LATEST_GIT_SHA" == "null" ]; then
+                export STORY_IDS=($(git log -10 | grep -E "\[.*\]" | grep -oE "\[.*\]" | grep -oE "([0-9]+)"))
+              else
+                export STORY_IDS=($(git log $LATEST_GIT_SHA..HEAD | grep -E "\[.*\]" | grep -oE "\[.*\]" | grep -oE "([0-9]+)"))
+              fi
+              export POST_STATUS=$(curl --write-out %{http_code} --silent --output /dev/null -X POST -H "X-TrackerToken: ((TRACKER_API_TOKEN))" -H "Content-Type: application/json" -d '{"status":"passed", "uuid":"6c4f920b182682a0c006bd81064204d8", "story_ids":['$(IFS=,; echo "${STORY_IDS[*]}")'], "latest_git_sha":"'$NEW_LATEST_GIT_SHA'", "version": 1}' "https://www.pivotaltracker.com/services/v5/projects/2459057/cicd")
+              if [[ "$POST_STATUS" -ne 200 ]] ; then
+                exit $POST_STATUS
+              else
+                exit 0
+              fi  
+    on_failure:
+      task: pipeline-failure
+      config:
+        platform: linux
+        image_resource:
+          type: docker-image
+          source:
+            repository: johnajimenez/ubuntu-bash-jq-curl-git
+            tag: latest
+        inputs:
+          - name: git-dev
+        run:
+          path: bash
+          args:
+            - -exc
+            - |
+              cd git-dev
+              export LATEST_GIT_SHA=$(curl -H "X-TrackerToken: ((TRACKER_API_TOKEN))" "https://www.pivotaltracker.com/services/v5/projects/2459057/cicd/6c4f920b182682a0c006bd81064204d8" | jq -r '.latest_git_sha')
+              git config --global core.pager cat
+              if git log $LATEST_GIT_SHA~..$LATEST_GIT_SHA; then
+                true # all is well
+              else
+                echo "$LATEST_GIT_SHA missing, assuming the worst"
+                export LATEST_GIT_SHA=null
+              fi
+              if [ "$LATEST_GIT_SHA" == "null" ]; then
+                export STORY_IDS=($(git log -10 | grep -E "\[.*\]" | grep -oE "\[.*\]" | grep -oE "([0-9]+)"))
+              else
+                export STORY_IDS=($(git log $LATEST_GIT_SHA..HEAD | grep -E "\[.*\]" | grep -oE "\[.*\]" | grep -oE "([0-9]+)"))
+              fi
+              export POST_STATUS=$(curl --write-out %{http_code} --silent --output /dev/null -X POST -H "X-TrackerToken: ((TRACKER_API_TOKEN))" -H "Content-Type: application/json" -d '{"status":"failed", "uuid":"6c4f920b182682a0c006bd81064204d8", "story_ids":['$(IFS=,; echo "${STORY_IDS[*]}")'], "version": 1}' "https://www.pivotaltracker.com/services/v5/projects/2459057/cicd")
+              if [[ "$POST_STATUS" -ne 200 ]] ; then
+                exit $POST_STATUS
+              else
+                exit 0
+              fi       
+  - put: slack-alert
+    params:
+      text: |
+        Check out the link for the Dev deployment status:
+        http://104.198.78.250:8080/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME
 
-- name: vat
+
+- name: vapt
   serial: true
   plan:
-  - get: git-repo
+  - get: git-dev
     trigger: true
     passed:
     - dev-deploy
   - task: ext-test
-    file: git-repo/concourse/shared/tasks/ext-test.yml
+    file: git-dev/concourse/shared/tasks/ext-test.yml
 
-- name: sast
+- name: aquasecurity
   serial: true
   plan:
-  - get: git-repo
+  - get: git-dev
     trigger: true
     passed:
     - dev-deploy
   - task: ext-test
-    file: git-repo/concourse/shared/tasks/ext-test.yml
-
-- name: dast
-  serial: true
-  plan:
-  - get: git-repo
-    trigger: true
-    passed:
-    - dev-deploy
-  - task: ext-test
-    file: git-repo/concourse/shared/tasks/ext-test.yml
-
-- name: iast
-  serial: true
-  plan:
-  - get: git-repo
-    trigger: true
-    passed:
-    - dev-deploy
-  - task: ext-test
-    file: git-repo/concourse/shared/tasks/ext-test.yml
+    file: git-dev/concourse/shared/tasks/ext-test.yml
 
 - name: stage-deploy
   serial: true
+  serial_groups: [deploy]
   plan:
-  - get: git-repo
-    trigger: true
+  - get: git-dev
+    # trigger: true
     passed:
-      - iast
-      - sast
-      - dast
+      - aquasecurity
+      - vapt
   - get: artifacts
     trigger: true
     passed:
-    - unit-pkg
     - dev-deploy
   - put: tas-stage
     params:
-      manifest: git-repo/manifest.yml
+      manifest: git-dev/manifest.yml
       path: artifacts/spring-music-*.jar
       current_app_name: spring-music
 
-- name: int-test
+- name: integration-test
   serial: true
   plan:
-  - get: git-repo
+  - get: git-dev
     trigger: true
     passed:
     - stage-deploy
   - task: ext-test
-    file: git-repo/concourse/shared/tasks/ext-test.yml
+    file: git-dev/concourse/shared/tasks/ext-test.yml
 
-- name: reg-test
+- name: functional-test
   serial: true
   plan:
-  - get: git-repo
+  - get: git-dev
     trigger: true
     passed:
     - stage-deploy    
   - task: ext-test
-    file: git-repo/concourse/shared/tasks/ext-test.yml
-
-- name: load-test
-  serial: true
-  plan:
-  - get: git-repo
-    trigger: true
-    passed:
-    - reg-test
-    - int-test
-  - task: ext-test
-    file: git-repo/concourse/shared/tasks/ext-test.yml
-
-- name: approval
-  serial: true
-  plan:
-  - get: git-repo
-    trigger: true
-    passed:
-    - load-test    
+    file: git-dev/concourse/shared/tasks/ext-test.yml
 
 - name: pre-prod-deploy
   serial: true
+  serial_groups: [deploy]
   plan:
-  - get: git-repo
-    trigger: true
+  - get: git-dev
+    # trigger: true
     passed:
-      - approval
+    - integration-test
+    - functional-test
   - get: artifacts
     trigger: true
     passed:
-    - unit-pkg
     - stage-deploy
   - put: tas-pre-prod
     params:
-      manifest: git-repo/manifest.yml
+      manifest: git-dev/manifest.yml
       path: artifacts/spring-music-*.jar
-      current_app_name: spring-music      
+      current_app_name: spring-music   
+      
+- name: jmeter
+  serial: true
+  plan:
+  - get: git-dev
+  - get: artifacts
+    passed:
+    - pre-prod-deploy
+    trigger: true
+  - task: ext-test
+    file: git-dev/concourse/shared/tasks/ext-test.yml
+
+- name: compliance
+  serial: true
+  plan:
+  - get: git-dev
+  - get: artifacts
+    passed:
+    - pre-prod-deploy
+    trigger: true
+  - task: ext-test
+    file: git-dev/concourse/shared/tasks/ext-test.yml
+
+- name: prod-release
+  serial_groups: [version]
+  plan:
+  - get: git-dev
+    trigger: true
+    passed:
+    - pre-prod-deploy
+  - get: git-prod
+  - get: version
+    params: {bump: final}
+  - put: git-dev
+    params:
+      repository: git-dev
+      tag: version/number
+  - put: git-prod
+    params:
+      merge: master
+      repository: git-dev
+
+- name: prod-deploy
+  serial: true
+  serial_groups: [deploy]
+  plan:
+  - get: git-prod
+    passed:
+    - prod-release
+  - get: artifacts
+    trigger: true
+    passed:
+    - pre-prod-deploy
+  - put: tas-prod
+    params:
+      manifest: git-prod/manifest.yml
+      path: artifacts/spring-music-*.jar
+      current_app_name: spring-music   

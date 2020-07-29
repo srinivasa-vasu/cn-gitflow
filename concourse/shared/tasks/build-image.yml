@@ -8,11 +8,11 @@ image_resource:
     tag: latest
 
 inputs:
-  - name: git-repo
+  - name: git-dev
   - name: artifacts
   
 outputs:
 - name: workarea
   
 run:
-  path: ./git-repo/concourse/shared/tasks/build-image.sh
+  path: ./git-dev/concourse/shared/tasks/build-image.sh

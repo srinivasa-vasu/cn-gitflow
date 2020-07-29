@@ -1,6 +1,7 @@
 resources:
 - name: git-dev
   type: git
+  check_every: 30s
   source:
     uri: https://github.com/srinivasa-vasu/cn-gitflow.git
     branch: master
@@ -26,13 +27,6 @@ resources:
     json_key: ((gcp_service_account_key))
     key: current-version
 
-# - name: git-repo
-#   type: git
-#   check_every: 30s
-#   source:
-#     uri: https://github.com/srinivasa-vasu/cn-gitflow.git
-#     branch: master
-
 jobs:
 
 - name: prod-release
@@ -49,8 +43,8 @@ jobs:
       tag: version/number
   - put: git-prod
     params:
-      merge: git-dev
-      repository: git-prod
+      merge: master
+      repository: git-dev
       
   # - task: build-package
   #   file: git-repo/concourse/shared/tasks/build-package.yml

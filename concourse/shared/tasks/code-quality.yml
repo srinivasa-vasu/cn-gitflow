@@ -12,11 +12,11 @@ params:
   REPO_SECRET:
 
 inputs:
-  - name: git-repo
+  - name: git-dev
 
 outputs:
-  - name: git-repo
+  - name: git-dev
 
     
 run:
-  path: ./git-repo/concourse/shared/tasks/code-quality.sh
+  path: ./git-dev/concourse/shared/tasks/code-quality.sh

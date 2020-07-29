@@ -8,14 +8,14 @@ image_resource:
     tag: latest
 
 inputs:
-  - name: git-repo
+  - name: git-dev
   - name: version
   
 outputs:
 - name: artifacts
   
 run:
-  path: ./git-repo/concourse/shared/tasks/build-package.sh  
+  path: ./git-dev/concourse/shared/tasks/build-package.sh  
 params: 
   version: version/number
   LOCAL_REPO:
