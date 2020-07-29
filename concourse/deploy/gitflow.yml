@@ -1,0 +1,65 @@
+resources:
+- name: git-dev
+  type: git
+  source:
+    uri: https://github.com/srinivasa-vasu/cn-gitflow.git
+    branch: master
+    username: ((git-user))
+    password: ((git-pass))
+    disable_ci_skip: true
+
+- name: git-prod
+  type: git
+  source:
+    uri: https://github.com/srinivasa-vasu/cn-gitflow.git
+    branch: prod
+    username: ((git-user))
+    password: ((git-pass))
+    disable_ci_skip: true   
+
+- name: version
+  type: semver
+  source:
+    initial_version: 1.0.0
+    driver: gcs
+    bucket: cn-pcf-bkt
+    json_key: ((gcp_service_account_key))
+    key: current-version
+
+# - name: git-repo
+#   type: git
+#   check_every: 30s
+#   source:
+#     uri: https://github.com/srinivasa-vasu/cn-gitflow.git
+#     branch: master
+
+jobs:
+
+- name: prod-release
+  serial_groups: [version]
+  plan:
+  - get: git-dev
+    trigger: true
+  - get: git-prod
+  - get: version
+    params: {bump: final}
+  - put: git-dev
+    params:
+      repository: git-dev
+      tag: version/number
+  - put: git-prod
+    params:
+      merge: git-dev
+      repository: git-prod
+      
+  # - task: build-package
+  #   file: git-repo/concourse/shared/tasks/build-package.yml
+  #   params:
+  #     LOCAL_REPO: ((local_repo))
+  #     REPO_KEY: ((repo_key))
+  #     REPO_SECRET: ((repo_secret))
+  # - put: git-version
+  #   params: {bump: minor}
+
+
+      
