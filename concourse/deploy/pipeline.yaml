@@ -52,7 +52,7 @@ resources:
 
 - name: git-dev
   type: git
-  check_every: 30s
+  check_every: 15s
   source:
     uri: https://github.com/srinivasa-vasu/cn-gitflow.git
     branch: master
@@ -261,6 +261,7 @@ jobs:
     params:
       manifest: git-dev/manifest.yml
       path: artifacts/spring-music-*.jar
+      current_app_name: ((APP_IMAGE))-((cf-space-dev))
     on_success:
       task: pipeline-success
       config:
@@ -378,7 +379,7 @@ jobs:
     params:
       manifest: git-dev/manifest.yml
       path: artifacts/spring-music-*.jar
-      current_app_name: spring-music
+      current_app_name: ((APP_IMAGE))-((cf-space-stage))
 
 - name: integration-test
   serial: true
@@ -417,7 +418,7 @@ jobs:
     params:
       manifest: git-dev/manifest.yml
       path: artifacts/spring-music-*.jar
-      current_app_name: spring-music   
+      current_app_name: ((APP_IMAGE))-((cf-space-preprod))
       
 - name: jmeter
   serial: true
@@ -427,8 +428,54 @@ jobs:
     passed:
     - pre-prod-deploy
     trigger: true
-  - task: ext-test
-    file: git-dev/concourse/shared/tasks/ext-test.yml
+  - task: run-jmeter
+    params:
+      DOMAIN: ((APP_IMAGE))-((cf-space-preprod)).cfapps.haas-222.pez.pivotal.io
+      PORT: 443
+      PROTOCOL: https
+      LOOPS: 2
+      NUM_THREADS: 5
+      RAMP_TIME: 1
+    config:
+      platform: linux
+      image_resource:
+        type: docker-image
+        source:
+          repository: justb4/jmeter
+      inputs:
+      - name: git-dev
+      outputs:
+      - name: report
+      run:
+        path: bash
+        args:
+          - -c
+          - |
+            set -e
+            cd git-dev
+
+            jmeter -Dlog_level.jmeter=DEBUG \
+              -J DOMAIN=${DOMAIN} \
+              -J PORT=${PORT} \
+              -J PROTOCOL=${PROTOCOL} \
+              -J LOOPS=${LOOPS} \
+              -J NUM_THREADS=${NUM_THREADS} \
+              -J RAMP_TIME=${RAMP_TIME} \
+              -n -t concourse/files/perf.jmx -l test.jtl -j jmeter.log \
+              -e -o ../report
+
+            echo "==== jmeter.log ===="
+            cat ./jmeter.log
+
+            echo "==== Raw Test Report ===="
+            cat ./test.jtl
+  - put: tas-pre-prod
+    params:
+      manifest: git-dev/manifest_perf.yml
+      path: report
+      current_app_name: perf-report
+#  - task: ext-test
+#    file: git-dev/concourse/shared/tasks/ext-test.yml
 
 - name: compliance
   serial: true
@@ -442,10 +489,13 @@ jobs:
     file: git-dev/concourse/shared/tasks/ext-test.yml
 
 - name: prod-release
-  serial_groups: [version]
+  serial: true
   plan:
   - get: git-dev
     trigger: true
+    passed:
+    - compliance
+  - get: artifacts
     passed:
     - pre-prod-deploy
   - get: git-prod
@@ -467,12 +517,12 @@ jobs:
   - get: git-prod
     passed:
     - prod-release
-  - get: artifacts
     trigger: true
+  - get: artifacts
     passed:
     - pre-prod-deploy
   - put: tas-prod
     params:
       manifest: git-prod/manifest.yml
       path: artifacts/spring-music-*.jar
-      current_app_name: spring-music   
+      current_app_name: ((APP_IMAGE))

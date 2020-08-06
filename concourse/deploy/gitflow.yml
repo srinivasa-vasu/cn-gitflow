@@ -46,14 +46,3 @@ jobs:
       merge: master
       repository: git-dev
       
-  # - task: build-package
-  #   file: git-repo/concourse/shared/tasks/build-package.yml
-  #   params:
-  #     LOCAL_REPO: ((local_repo))
-  #     REPO_KEY: ((repo_key))
-  #     REPO_SECRET: ((repo_secret))
-  # - put: git-version
-  #   params: {bump: minor}
-
-
-      
